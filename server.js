@@ -21,11 +21,25 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// CORS: locked to the single frontend origin (public site + admin panel are served together)
+// CORS: allow the production custom domains + the Cloudflare Pages default URL,
+// plus common local-dev origins.
 const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:5500';
+const allowedOrigins = [
+  allowedOrigin,
+  'https://mubashrarizwan.dev',
+  'https://www.mubashrarizwan.dev',
+  'https://mubashraportfolio.pages.dev',
+  'http://localhost:5500',
+  'http://127.0.0.1:5500',
+];
 app.use(
   cors({
-    origin: allowedOrigin,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
