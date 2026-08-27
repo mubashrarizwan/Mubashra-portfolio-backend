@@ -1,11 +1,7 @@
 const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const multer = require('multer');
 const multerS3 = require('multer-s3');
-
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
@@ -14,23 +10,7 @@ function fileFilter(_req, file, cb) {
   cb(new Error('Only JPG, PNG, WEBP or GIF images are allowed.'));
 }
 
-// ---------- Profile picture (unchanged — still saved to local disk) ----------
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    cb(null, `profile-${unique}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-});
-
-// ---------- Project gallery images (uploaded straight to AWS S3) ----------
+// ---------- Shared S3 client ----------
 const s3 = new S3Client({
   region: process.env.AWS_REGION,
   credentials: {
@@ -39,6 +19,27 @@ const s3 = new S3Client({
   },
 });
 
+// ---------- Profile picture (uploaded straight to AWS S3) ----------
+// Previously saved to local disk, which does NOT persist across redeploys/restarts
+// on Northflank (ephemeral filesystem) — the file would silently disappear after
+// the next deploy. Moved to S3, same as project images and the resume, so it
+// survives redeploys permanently.
+const upload = multer({
+  storage: multerS3({
+    s3,
+    bucket: process.env.AWS_BUCKET_NAME,
+    contentType: multerS3.AUTO_CONTENT_TYPE,
+    key: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      cb(null, `profile/profile-${unique}${ext}`);
+    },
+  }),
+  fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
+
+// ---------- Project gallery images (uploaded straight to AWS S3) ----------
 const uploadProjectImages = multer({
   storage: multerS3({
     s3,
@@ -96,4 +97,4 @@ const uploadResume = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
-module.exports = { upload, uploadProjectImages, uploadResume, UPLOAD_DIR, deleteFromS3 };
+module.exports = { upload, uploadProjectImages, uploadResume, deleteFromS3 };

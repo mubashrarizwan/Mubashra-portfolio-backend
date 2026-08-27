@@ -1,18 +1,9 @@
-const path = require('path');
-const fs = require('fs');
 const Profile = require('../models/Profile');
 const asyncHandler = require('../utils/asyncHandler');
-const { UPLOAD_DIR, deleteFromS3 } = require('../middleware/upload');
+const { deleteFromS3 } = require('../middleware/upload');
 
 async function findProfileDoc() {
   return Profile.findOne();
-}
-
-function removeFileIfLocal(relativePath) {
-  if (!relativePath || /^https?:\/\//i.test(relativePath)) return;
-  const filename = path.basename(relativePath);
-  const fullPath = path.join(UPLOAD_DIR, filename);
-  if (fs.existsSync(fullPath)) fs.unlink(fullPath, () => {});
 }
 
 const getProfile = asyncHandler(async (_req, res) => {
@@ -40,17 +31,21 @@ const updateProfile = asyncHandler(async (req, res) => {
   res.json({ success: true, data: profile, message: 'Profile saved.' });
 });
 
+// POST /api/profile/picture  (protected, multipart/form-data field "picture")
+// Profile picture is uploaded straight to S3 (see middleware/upload.js), so
+// req.file.location is the full public URL — same pattern as the resume below.
 const uploadPicture = asyncHandler(async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded. Use field name "picture".' });
   }
   let profile = await findProfileDoc();
-  if (profile && profile.profilePicture) removeFileIfLocal(profile.profilePicture);
+  if (profile && profile.profilePicture) {
+    await deleteFromS3(profile.profilePicture);
+  }
 
-  const relativePath = `uploads/${req.file.filename}`;
   profile = await Profile.findOneAndUpdate(
     {},
-    { profilePicture: relativePath },
+    { profilePicture: req.file.location },
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
 
@@ -62,7 +57,7 @@ const deletePicture = asyncHandler(async (_req, res) => {
   if (!profile || !profile.profilePicture) {
     return res.json({ success: true, data: profile || {}, message: 'No profile picture to remove.' });
   }
-  removeFileIfLocal(profile.profilePicture);
+  await deleteFromS3(profile.profilePicture);
   profile.profilePicture = '';
   await profile.save();
   res.json({ success: true, data: profile, message: 'Profile picture removed.' });
