@@ -49,6 +49,16 @@ app.use(
 // Uploaded profile pictures etc. are served at http://<host>/uploads/<filename>
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// ---------- Robots.txt ----------
+// Allow search engines and AI crawlers to crawl the API subdomain.
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(
+`User-agent: *
+Allow: /
+`
+  );
+});
+
 // ---------- API routes ----------
 app.use('/api', apiRoutes);
 
